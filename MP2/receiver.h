@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <utility>
 #include <vector>
+#include <map>
 #include <iostream>
 #ifndef RECEIVER_H_
 #define RECEIVER_H_
@@ -29,7 +30,7 @@
 #define ESTABLISHED 3
 #define CLOSE_WAIT 4
 #define LAST_ACK 5
-#define MAXBUFSIZE 200000000
+#define MAXBUFSIZE 20000
 #define HEADERSIZE 16
 using namespace std;
 
@@ -42,15 +43,8 @@ typedef struct{
 	uint8_t data[MSS];
 }packet;
 
-//struct used in receive_window
-typedef struct{
-	packet pkt;
-	bool   is_Acked;
-}segment;
-
-
 void reliablyReceive(char* myUDPport, char* destinationFile);
 int  buildSocket(char* myUDPport);
-void handleData(packet & pkt);
+void handleData(packet pkt);
 void endConndection();
 #endif

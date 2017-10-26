@@ -1,10 +1,10 @@
 #include "receiver.h"
 
-int lastACK=0; // the most recent acked packet
 int nextACK=0; // next expecting ack packet
-
-vector<segment> receive_window;
-vector<uint8_t> file_buffer;
+int buf_idx=0;
+int  receive_window[RWND];
+packet window_buffer[RWND];
+uint8_t file_buffer[MAXBUFSIZE];
 
 int state=CLOSED;
 FILE * fd;
@@ -49,7 +49,6 @@ int buildSocket(char* myUDPport){
 
     freeaddrinfo(servinfo);
 
-    lastACK = 0;
     nextACK = 0;
     state = LISTEN;
 
@@ -61,6 +60,7 @@ int buildSocket(char* myUDPport){
     if(state == LISTEN && pkt.msg_type == SYN){ 
         while(1){
             pkt.msg_type = SYN_ACK;
+            pkt.data_size=0;
             state = SYN_RCVD;
             memcpy(buf,&pkt,sizeof(packet));
             if((numbytes = sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
@@ -83,45 +83,87 @@ int buildSocket(char* myUDPport){
 }
 
 
-void handleData(packet & pkt){
+void handleData(packet pkt){
     // arrival of inorder segment with expected sequence number
     // send single cumulative ack if lower waiting for ack
-    packet temp;
     if(pkt.seq_num == nextACK){
-        //send ack
-        temp.msg_type=ACK;
-        temp.ack_num = nextACK;
-        // ACK next missing packet
-        temp.data_size = 0; // data size is 0 since we are sending ack
-        memcpy(&temp,buf,HEADERSIZE);
-        sendto(socket_fd, buf, HEADERSIZE, 0, (struct sockaddr *) &their_addr,addr_len);
-        lastACK++;
-        for(int i=0;i<pkt.data_size;i++){
-            fputc(pkt.data[i],fd);
+        //send current packet and potential to receive_buffer
+        receive_window[nextACK]=1;
+        while(receive_window[nextACK]){
+            receive_window[nextACK]=0;
+            for(int i=0;i<window_buffer[nextACK].data_size;i++){
+                if(buf_idx<MAXBUFSIZE){
+                    file_buffer[buf_idx++] = pkt.data[i];
+                }
+                else{
+                    // write to file
+                    fwrite(file_buffer,sizeof(uint8_t),MAXBUFSIZE,fd);
+                    buf_idx=0;
+                }
+            }
+        nextACK=(nextACK+1) % RWND;     
         }
-        nextACK++;
     }
     //arrival out of order segment, send duplicate ack
     else if (pkt.seq_num > nextACK) {
         //buffer this packet
-
-        // send nextack
+        if (receive_window[pkt.seq_num]==0){
+            receive_window[pkt.seq_num]=1;
+            memcpy(&window_buffer[pkt.seq_num], &pkt, sizeof(packet));
+        }
     }
     //arrival of segment partially fills gap, send ack
-    else if (pkt.seq_num < nextACK){
-        //send seq_num
-        temp.msg_type= ACK;
-        temp.ack_num = nextACK;
-        temp.data_size= 0;
-        memcpy(&temp,buf,HEADERSIZE);
-        sendto(socket_fd, buf, HEADERSIZE, 0, (struct sockaddr *) &their_addr,addr_len);
+    else {
+        // sequence number < nextAck
+        // simply ignore this packet
     }
 
+    // always send nextACK
+    packet ack;
+    ack.msg_type=ACK;
+    ack.ack_num = nextACK;
+    ack.data_size = 0; // data size is 0 since we are sending ack
+    memcpy(&ack,buf,sizeof(packet));
+    sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len);
 }
 
 
 void endConndection(){
+    //receive FIN, send FINACK
+    while(1){
+        packet pkt;
+        pkt.msg_type = FIN_ACK;
+        pkt.data_size=0;
+        memcpy(buf,&pkt,sizeof(packet));
+        if((numbytes = sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
+            perror("can not send to sender");
+            exit(2);
+        }
+        state = CLOSE_WAIT;
 
+        // send FIN
+        packet fin;
+        fin.msg_type=FIN;
+        fin.data_size=0;
+        memcpy(buf,&fin,sizeof(packet));
+        if((numbytes = sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
+            perror("can not send to sender");
+            exit(2);
+        }
+        state = LAST_ACK;
+
+        // send final ack
+        packet ack;
+        if((numbytes=recvfrom(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len))==-1){
+            perror("can not receive from sender");
+            exit(2);
+        }
+        memcpy(&ack,buf,sizeof(packet));
+        if(ack.msg_type==FIN_ACK){
+            state = CLOSED;
+            break;
+        }
+    }
 }
 
 void reliablyReceive(char* myUDPport, char* destinationFile)
@@ -139,20 +181,17 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
         }
         packet pkt;
         memcpy(&pkt,buf,sizeof(packet));
-        if(pkt.data_size>0){
-            switch (pkt.msg_type){
-                case DATA:
-                    handleData(pkt);
-                    break;
-                case FIN:
-                    endConndection();
-                    break;
-                default:
-                    cout<<"Should not reach here"<<endl;
-                    break;
-            }
+        if(pkt.msg_type == DATA){
+            handleData(pkt);
+            continue;
+        }
+        else if(pkt.msg_type == FIN){
+            // send data remain in buffer
+            fwrite(file_buffer,sizeof(uint8_t),buf_idx+1,fd);
+            endConndection();
+            break;
         }
     }
-
+    fclose(fd);
 }
 
