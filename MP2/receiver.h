@@ -14,18 +14,28 @@
 #ifndef RECEIVER_H_
 #define RECEIVER_H_
 
-#define MSS 4096
+#define MSS 1000
 #define RWND 200
-#define SYN 0
-#define ACK 1
-#define FIN 2
-#define FINACK 3
+#define DATA 0
+#define SYN 1
+#define SYN_ACK 2
+#define ACK 3
+#define FIN 4
+#define FIN_ACK 5
 
-
+#define CLOSED 0
+#define LISTEN 1
+#define SYN_RCVD 2
+#define ESTABLISHED 3
+#define CLOSE_WAIT 4
+#define LAST_ACK 5
+#define MAXBUFSIZE 200000000
+#define HEADERSIZE 16
 using namespace std;
 
 //packet structure used for transfering
 typedef struct{
+	int 	data_size;
 	int 	seq_num;
 	int     ack_num;
 	int     msg_type; //SYN 0 ACK 1 FIN 2 FINACK 3
@@ -40,6 +50,7 @@ typedef struct{
 
 
 void reliablyReceive(char* myUDPport, char* destinationFile);
-int buildSocket(char* myUDPport);
-
+int  buildSocket(char* myUDPport);
+void handleData(packet & pkt);
+void endConndection();
 #endif
