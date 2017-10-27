@@ -12,13 +12,13 @@ unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0
 int64_t timeout, estimatedRTT = 1000, deviation = 1;
 
 FILE *fp;
+int send_base_acked = 0;
 double cwnd = 1;
 int ssthread = 8, dupACK = 0;
 int send_base = 0, next_send = 0, file_pt = 0;
 int global_seq_num = 0;
 ssize_t numbytes;
 int file_read_finished = 0;
-int window_ack[SWND] = {0};
 packet window_buffer[SWND];
 int64_t sent_time[SWND];
 uint8_t buf[sizeof(packet)];
@@ -124,7 +124,6 @@ int fillingWindow(int num_pkt) {
     char file_buffer[MSS+1];
     packet pkt;
     while (!file_read_finished && counter < num_pkt) {
-//        if( window_ack[file_pt] == 0 ) { break; }
         int read_size = fread (file_buffer, sizeof(char), MSS, fp);
         if (read_size > 0) {
             pkt.data_size = read_size;
@@ -132,7 +131,6 @@ int fillingWindow(int num_pkt) {
             pkt.msg_type = DATA;
             memcpy(pkt.data, &file_buffer, sizeof(char) * MSS);
             memcpy(&window_buffer[file_pt], &pkt, sizeof(packet));
-            window_ack[file_pt] = 0;
             file_pt = (file_pt + 1) % SWND;
             global_seq_num = (global_seq_num + 1) % MAX_SEQ;
         }
@@ -160,10 +158,9 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
             exit(2);
         }
         cout << "-----------Sending packet " << window_buffer[i].seq_num << "---------------" << endl;
-        usleep(200000);
     }
-    num_pkt_sent += (last_pt + SWND - start_pt) % SWND;
-    fillingWindow( (last_pt + SWND - start_pt) % SWND );
+    num_pkt_sent += (last_pt - start_pt) % SWND;
+    fillingWindow( (last_pt- start_pt) % SWND );
     return 0;
 }
 
@@ -194,14 +191,16 @@ int sendAllowedPackets (int sockfd) {
 
 int handleACK (packet pkt, int sockfd) {
     int ack_pos_in_swnd = pkt.ack_num % SWND;
-    if (pkt.ack_num > next_send ||
-        (send_base < next_send && pkt.ack_num < send_base)) {
-        perror("Out of order dupACK");
+    if ((send_base < next_send && (ack_pos_in_swnd > next_send || ack_pos_in_swnd < send_base)) ||
+        (send_base > ack_pos_in_swnd && ack_pos_in_swnd > next_send )) {
+        perror("Out of order ACK");
         return -1;
     }
 
-    if (window_ack[pkt.ack_num - 1] == 0) {
-        cout << "Received a new ACK with " << pkt.ack_num - 1 << endl;
+    if (ack_pos_in_swnd > send_base) {
+        num_pkt_received += ack_pos_in_swnd - send_base;
+        send_base = ack_pos_in_swnd;
+        cout << "Received a new ACK with " << pkt.ack_num << endl;
         // new ACK
         if (soc_state == FAST_RECOVERY) {
             cwnd = ssthread * 1.0;
@@ -209,27 +208,16 @@ int handleACK (packet pkt, int sockfd) {
             soc_state = CONGESTION_AVOID;
         }
 
-        // Mark all ACKed, move sendbase
-        int last_send_base = send_base, tmp;
-        send_base = pkt.ack_num;    // Cumulative ACK
-        tmp = send_base > last_send_base ? send_base : send_base + SWND;
-        for (int i = last_send_base; i < tmp; ++i) {
-            window_ack[i % 5] = 1;
-        }
-        num_pkt_received += tmp - last_send_base;
-
         cout << "Total Received pkt: " << num_pkt_received << endl;
 
         switch (soc_state) {
             case SLOW_START:
                 cwnd += 1;
                 dupACK = 0;
-                sendAllowedPackets(sockfd);
                 break;
             case CONGESTION_AVOID:
                 cwnd += 1.0 / cwnd;
                 dupACK = 0;
-                sendAllowedPackets(sockfd);
                 break;
             case FAST_RECOVERY:
                 cwnd = ssthread;
@@ -240,15 +228,13 @@ int handleACK (packet pkt, int sockfd) {
                 perror("Wrong socket status");
                 return -1;
         }
-    } else if (pkt.ack_num == send_base + 1) { // dup ACK
+    } else if (ack_pos_in_swnd == send_base) { // dup ACK
         if (soc_state == SLOW_START || soc_state == CONGESTION_AVOID) {
             ++dupACK;
         } else { cwnd += 1; }
     } else {
         perror("Invalid ACK packet");
     }
-
-
 
     // cwnd > ssthread
     if (soc_state == SLOW_START && cwnd > ssthread) {
@@ -262,9 +248,11 @@ int handleACK (packet pkt, int sockfd) {
         sendSinglePacket(sockfd, send_base);
         soc_state = FAST_RECOVERY;
     }
-    updateTimeout(sent_time[pkt.ack_num]);
+    updateTimeout(sent_time[ack_pos_in_swnd]);
     cout << "State: " << soc_state << "  cwnd: " << cwnd << " ssthread: " << ssthread
          << " dupACK: " << dupACK << endl;
+    sendAllowedPackets(sockfd);
+
     return 0;
 }
 
