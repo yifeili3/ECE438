@@ -1,4 +1,3 @@
-#include <MacTypes.h>
 #include "sender.h"
 #include "receiver.h"
 
