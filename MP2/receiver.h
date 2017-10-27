@@ -23,6 +23,7 @@
 #define ACK 3
 #define FIN 4
 #define FIN_ACK 5
+#define MAXSEQUENCE 150000
 
 #define CLOSED 0
 #define LISTEN 1
