@@ -149,17 +149,17 @@ int fillingWindow(int num_pkt) {
 int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
     // Inclusive for start and last
     for (int i = start_pt; i < last_pt; ++i) {
-        i %= SWND;
-        memcpy(buf, &window_buffer[i], sizeof(packet));
+        int i_pos_in_swnd = i % SWND;
+        memcpy(buf, &window_buffer[i_pos_in_swnd], sizeof(packet));
         if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
             perror("Error: data sending");
-            printf("Fail to send %d pkt", i);
+            printf("Fail to send %d pkt in SWND", i_pos_in_swnd);
             exit(2);
         }
-        cout << "-----------Sending packet " << window_buffer[i].seq_num << "---------------" << endl;
+        cout << "-----------Sending packet " << window_buffer[i_pos_in_swnd].seq_num << "---------------" << endl;
     }
     num_pkt_sent += (last_pt - start_pt) % SWND;
-    fillingWindow( (last_pt- start_pt) % SWND );
+    if (!file_read_finished) { fillingWindow( (last_pt- start_pt) % SWND ); }
     return 0;
 }
 
@@ -175,12 +175,19 @@ int sendSinglePacket (int sockfd, int pt) {
 }
 
 int sendAllowedPackets (int sockfd) {
+
+    if (num_pkt_sent == num_pkt_total) {
+        cout << "No packet to send" << endl;
+        return 0;
+    }
+
+    int last_pk = send_base + (int)cwnd;
     if (next_send < send_base) {
         next_send += SWND;
     }
-    int last_pk = send_base + (int)cwnd;
-//    cout << "------------Sending Packet from " << next_send
-//         << " to " << last_pk << ".-------------" << endl;
+    if (num_pkt_total - num_pkt_sent < last_pk - next_send ) {
+        last_pk = next_send + num_pkt_total - num_pkt_sent;
+    }
 
     sendMultiPackets(sockfd, next_send, last_pk);
     next_send = (last_pk) % SWND;
@@ -196,8 +203,9 @@ int handleACK (packet pkt, int sockfd) {
         return -1;
     }
 
-    if (ack_pos_in_swnd > send_base) {
-        num_pkt_received += ack_pos_in_swnd - send_base;
+    if ((ack_pos_in_swnd > send_base) ||
+            (next_send < send_base && ack_pos_in_swnd <= next_send)) {
+        num_pkt_received += (pkt.ack_num - send_base) % SWND;
         send_base = ack_pos_in_swnd;
         cout << "Received a new ACK with " << pkt.ack_num << endl;
         // new ACK
@@ -260,7 +268,7 @@ void endConnection(int sockfd){
     pkt.msg_type = FIN;
     pkt.data_size=0;
     memcpy(buf, &pkt, sizeof(packet));
-    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
+    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
         perror("can not send FIN to sender");
         exit(2);
     }
@@ -273,12 +281,13 @@ void endConnection(int sockfd){
         }
         memcpy(&ack, buf, sizeof(packet));
         if (ack.msg_type == FIN_ACK) {
+            cout << "Receive the FIN_ACK." << endl;
             soc_state = FIN_WAIT;
             break;
         }
     }
     // Wait for the FIN
-    setTimeout(sockfd, (int) timeout * 10);
+    // TODO: wait for some time
     while (1) {
         packet ack;
         if ((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1) {
@@ -287,19 +296,19 @@ void endConnection(int sockfd){
         }
         memcpy(&ack, buf, sizeof(packet));
         if (ack.msg_type == FIN) {
-            soc_state = FIN_WAIT;
+            cout << "Receive the last FIN" << endl;
             break;
-        }
-
-        pkt.msg_type = FIN_ACK;
-        pkt.data_size=0;
-        memcpy(buf, &pkt, sizeof(packet));
-        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-            perror("can not send FIN to sender");
-            exit(2);
         }
     }
 
+    pkt.msg_type = FIN_ACK;
+    pkt.data_size=0;
+    memcpy(buf, &pkt, sizeof(packet));
+    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
+        perror("can not send final FIN to sender");
+        exit(2);
+    }
+    //TODO: Wait for some time to finially close the channel.
 
 }
 
@@ -320,14 +329,15 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
         perror("Error during filling window");
     }
 
-
+    //TODO: assumption here: the input length is always larger than file size.
     num_pkt_total = (unsigned long long int) ceil(bytesToTransfer * 1.0 / MSS);
     cout << num_pkt_total << endl;
 
     sendAllowedPackets(sockfd);
 //    sendSinglePacket(sockfd, 0);
 //    setTimeout(sockfd, (int) estimatedRTT);
-    while (!file_read_finished && num_pkt_sent < num_pkt_total) {
+    while (num_pkt_sent < num_pkt_total ||
+           num_pkt_received < num_pkt_sent) {
         // Wait for ack
         if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, NULL, NULL)) == -1) {
             perror("can not receive data");
