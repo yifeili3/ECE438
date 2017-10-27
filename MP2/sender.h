@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <math.h>
 #include <list>	// list
 #include <utility>	// pair
 #include <iostream>
@@ -30,16 +31,7 @@ using namespace std;
 
 #define MAX_SEQ 150
 
-#define HEADERSIZE 16
-//packet structure used for transfering
-typedef struct{
-    int 	data_size;
-    int 	seq_num;
-    int     ack_num;
-    int     msg_type; //SYN 0 ACK 1 FIN 2 FINACK 3
-    uint8_t data[MSS];
-} packet;;
 enum socket_state {CLOSED, SLOW_START, CONGESTION_AVOID, FAST_RECOVERY, FIN_WAIT};
-int buildSocket(char* hostname, char* hostUDPport);
+int buildSenderSocket(char* hostname, char* hostUDPport);
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigned long long int bytesToTransfer);
 #endif

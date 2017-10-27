@@ -8,8 +8,8 @@ reliable_sender: sender.o
 reliable_receiver: receiver.o
 	${GCC} ${COPTS} -D DEBUG -o reliable_receiver receiver_main.c receiver.o
 
-sender.o: sender.h sender.c 
-	${GCC} ${COPTS} -D DEBUG -c sender.c 
+sender.o: sender.h sender.c
+	${GCC} ${COPTS} -D DEBUG -c sender.c
 
 
 receiver.o: receiver.h receiver.c
