@@ -159,7 +159,7 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
             printf("Fail to send %d pkt", i);
             exit(2);
         }
-        cout << "-----------Sending packet " << i << "---------------" << endl;
+        cout << "-----------Sending packet " << window_buffer[i].seq_num << "---------------" << endl;
         usleep(200000);
     }
     num_pkt_sent += (last_pt + SWND - start_pt) % SWND;
@@ -182,12 +182,13 @@ int sendAllowedPackets (int sockfd) {
     if (next_send < send_base) {
         next_send += SWND;
     }
-    int last_pk = min(send_base + SWND, next_send + (int)cwnd);
+    int last_pk = send_base + (int)cwnd;
 //    cout << "------------Sending Packet from " << next_send
 //         << " to " << last_pk << ".-------------" << endl;
 
     sendMultiPackets(sockfd, next_send, last_pk);
     next_send = (last_pk) % SWND;
+    cout << "send_base: " << send_base << " next_send: " << next_send << endl;
     return 0;
 }
 
@@ -263,7 +264,7 @@ int handleACK (packet pkt, int sockfd) {
     }
     updateTimeout(sent_time[pkt.ack_num]);
     cout << "State: " << soc_state << "  cwnd: " << cwnd << " ssthread: " << ssthread
-         << " dupACK: " << dupACK << " timeout: "<< timeout << endl;
+         << " dupACK: " << dupACK << endl;
     return 0;
 }
 
@@ -356,4 +357,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
     fclose(fp);
 
     endConnection(sockfd);
+
+    //TODO: timeout
+    //FIXME: Sending too many packets
 }
