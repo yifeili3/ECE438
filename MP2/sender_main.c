@@ -16,7 +16,7 @@ int main(int argc, char** argv)
 	printf("timeval size = %ld\n",sizeof(timeval));
 	//udpPort = (unsigned short int)atoi(argv[2]);
 	numBytes = atoll(argv[4]);
-    reliablyTransfer(argv[1],argv[2], argv[3],numBytes);
+	reliablyTransfer(argv[1],argv[2], argv[3],numBytes);
 
 	return 0;
 }

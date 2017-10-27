@@ -5,6 +5,8 @@
 //struct socketaddr_in bind_addr, receiver_addr;
 struct sockaddr_storage their_addr; // connector's address information
 socklen_t addr_len = sizeof their_addr;
+struct addrinfo hints, *recvinfo, *p;
+
 
 unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0;
 int64_t timeout, estimatedRTT = 1000, deviation = 1;
@@ -55,40 +57,37 @@ int handshake(int sockfd) {
     pkt.data_size=0;
     while(1) {
         memcpy(buf, &pkt, sizeof(packet));
-        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
+        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen )) == -1){
             perror("can not send SYN to sender");
             exit(2);
         }
-        if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len))==-1){
+        if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1){
             perror("can not receive SYN_ACK from sender");
             exit(2);
         }
         memcpy(&pkt, buf, sizeof(packet));
         if(pkt.msg_type == SYN_ACK){
             soc_state = SLOW_START;
+            cout << "Receive SYN_ACK" << endl;
             break;
         }
     }
     pkt.msg_type = ACK;
-    memcpy(&pkt, buf, sizeof(packet));
-    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
+    memcpy(buf, &pkt, sizeof(packet));
+    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
         perror("can not receive SYN_ACK from sender");
         exit(2);
     }
 
-    return 1;
+    return 0;
 }
 
 int buildSenderSocket(char* hostname, char* hostUDPport) {
     int rv, sockfd, optval=1;  // listen on sock_fd,
-//    int recver_port = atoi(hostUDPport);
-//    int sender_port = 8000;
-    struct addrinfo hints, *recvinfo, *p;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_flags = AI_PASSIVE; // use my IP
 
 	if ((rv = getaddrinfo(hostname, hostUDPport, &hints, &recvinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
@@ -102,33 +101,16 @@ int buildSenderSocket(char* hostname, char* hostUDPport) {
 			perror("server: error opening socket");
 			continue;
 		}
-
-		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval,
-				sizeof(int)) == -1) {
-			perror("setsockopt");
-			exit(1);
-		}
-
-		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			close(sockfd);
-			perror("server: bind");
-			continue;
-		}
-
-		break;
+        break;
 	}
+
 
 	if (p == NULL)  {
 		fprintf(stderr, "server: failed to bind\n");
 		return 2;
 	}
 
-	if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
-        perror("can not send to sender");
-        exit(2);
-    }
-
-    if (handshake(sockfd) != -1) {
+	if (handshake(sockfd) != -1) {
     	return sockfd;
     } else {
     	perror("Fail handshaking");
@@ -139,26 +121,30 @@ int buildSenderSocket(char* hostname, char* hostUDPport) {
 
 int fillingWindow(int num_pkt) {
     int counter = 0;
-    char file_buffer[MSS];
+    char file_buffer[MSS+1];
     packet pkt;
     while (!file_read_finished && counter < num_pkt) {
-        if( window_ack[file_pt] == 0 ) { break; }
-        if( fgets (file_buffer, MSS, fp)== NULL ) {
-            file_read_finished = 1;
-            //TODO: tell the receiver it is the last?
-            break;
-        } else {
-            pkt.data_size = strlen(file_buffer);
+//        if( window_ack[file_pt] == 0 ) { break; }
+        int read_size = fread (file_buffer, sizeof(char), MSS, fp);
+        if (read_size > 0) {
+            pkt.data_size = read_size;
             pkt.seq_num = global_seq_num;
             pkt.msg_type = DATA;
-            memcpy(pkt.data, &file_buffer, sizeof(file_buffer));
-            memcpy(&window_buffer[file_pt], &pkt, sizeof(pkt));
+            memcpy(pkt.data, &file_buffer, sizeof(char) * MSS);
+            memcpy(&window_buffer[file_pt], &pkt, sizeof(packet));
             window_ack[file_pt] = 0;
             file_pt = (file_pt + 1) % SWND;
             global_seq_num = (global_seq_num + 1) % MAX_SEQ;
         }
+
+        if (read_size < MSS) {
+            file_read_finished = 1;
+            break;
+        }
         ++counter;
     }
+
+    cout << "Filling the window" << endl;
 
     return counter;
 }
@@ -168,11 +154,13 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
     for (int i = start_pt; i < last_pt; ++i) {
         i %= SWND;
         memcpy(buf, &window_buffer[i], sizeof(packet));
-        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
+        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
             perror("Error: data sending");
             printf("Fail to send %d pkt", i);
             exit(2);
         }
+        cout << "-----------Sending packet " << i << "---------------" << endl;
+        usleep(200000);
     }
     num_pkt_sent += (last_pt + SWND - start_pt) % SWND;
     fillingWindow( (last_pt + SWND - start_pt) % SWND );
@@ -181,7 +169,7 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
 
 int sendSinglePacket (int sockfd, int pt) {
     memcpy(buf, &window_buffer[pt], sizeof(packet));
-    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
+    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
         perror("Error: data sending");
         printf("Fail to send %d pkt", pt);
         exit(2);
@@ -190,26 +178,29 @@ int sendSinglePacket (int sockfd, int pt) {
     return 0;
 }
 
-
 int sendAllowedPackets (int sockfd) {
     if (next_send < send_base) {
         next_send += SWND;
     }
     int last_pk = min(send_base + SWND, next_send + (int)cwnd);
-    sendMultiPackets(sockfd, next_send, last_pk);
-    next_send = (last_pk + 1) % SWND;
+//    cout << "------------Sending Packet from " << next_send
+//         << " to " << last_pk << ".-------------" << endl;
 
+    sendMultiPackets(sockfd, next_send, last_pk);
+    next_send = (last_pk) % SWND;
     return 0;
 }
 
 int handleACK (packet pkt, int sockfd) {
+    int ack_pos_in_swnd = pkt.ack_num % SWND;
     if (pkt.ack_num > next_send ||
         (send_base < next_send && pkt.ack_num < send_base)) {
         perror("Out of order dupACK");
         return -1;
     }
 
-    if (window_ack[pkt.ack_num] == 0) {
+    if (window_ack[pkt.ack_num - 1] == 0) {
+        cout << "Received a new ACK with " << pkt.ack_num - 1 << endl;
         // new ACK
         if (soc_state == FAST_RECOVERY) {
             cwnd = ssthread * 1.0;
@@ -225,6 +216,8 @@ int handleACK (packet pkt, int sockfd) {
             window_ack[i % 5] = 1;
         }
         num_pkt_received += tmp - last_send_base;
+
+        cout << "Total Received pkt: " << num_pkt_received << endl;
 
         switch (soc_state) {
             case SLOW_START:
@@ -246,13 +239,15 @@ int handleACK (packet pkt, int sockfd) {
                 perror("Wrong socket status");
                 return -1;
         }
-    } else if (pkt.ack_num == send_base) { // dup ACK
+    } else if (pkt.ack_num == send_base + 1) { // dup ACK
         if (soc_state == SLOW_START || soc_state == CONGESTION_AVOID) {
             ++dupACK;
         } else { cwnd += 1; }
     } else {
         perror("Invalid ACK packet");
     }
+
+
 
     // cwnd > ssthread
     if (soc_state == SLOW_START && cwnd > ssthread) {
@@ -267,6 +262,8 @@ int handleACK (packet pkt, int sockfd) {
         soc_state = FAST_RECOVERY;
     }
     updateTimeout(sent_time[pkt.ack_num]);
+    cout << "State: " << soc_state << "  cwnd: " << cwnd << " ssthread: " << ssthread
+         << " dupACK: " << dupACK << " timeout: "<< timeout << endl;
     return 0;
 }
 
@@ -309,7 +306,7 @@ void endConnection(int sockfd){
         pkt.msg_type = FIN_ACK;
         pkt.data_size=0;
         memcpy(buf, &pkt, sizeof(packet));
-        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
+        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
             perror("can not send FIN to sender");
             exit(2);
         }
@@ -321,8 +318,9 @@ void endConnection(int sockfd){
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
 
     int sockfd = buildSenderSocket(hostname, hostUDPport);
+    cout << "Successfully build socket with sockfd: " << sockfd << endl;
+//    int sockfd = 3;
 
-    FILE *fp;
     fp = fopen(filename, "rb");
     if (fp == NULL) {
         printf("Could not open file to send.");
@@ -336,11 +334,12 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
 
 
     num_pkt_total = (unsigned long long int) ceil(bytesToTransfer * 1.0 / MSS);
+    cout << num_pkt_total << endl;
 
     sendAllowedPackets(sockfd);
-    setTimeout(sockfd, (int) estimatedRTT);
+//    sendSinglePacket(sockfd, 0);
+//    setTimeout(sockfd, (int) estimatedRTT);
     while (!file_read_finished && num_pkt_sent < num_pkt_total) {
-        //TODO: condition need to modify
         // Wait for ack
         if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, NULL, NULL)) == -1) {
             perror("can not receive data");

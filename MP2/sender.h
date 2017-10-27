@@ -29,7 +29,7 @@ using namespace std;
 #define FIN 4
 #define FIN_ACK 5
 
-#define MAX_SEQ 150
+#define MAX_SEQ 150000
 
 enum socket_state {CLOSED, SLOW_START, CONGESTION_AVOID, FAST_RECOVERY, FIN_WAIT};
 int buildSenderSocket(char* hostname, char* hostUDPport);
