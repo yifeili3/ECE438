@@ -89,7 +89,7 @@ void handleData(packet pkt){
     if(pkt.seq_num == nextACK){
         //send current packet and potential to receive_buffer
         cout<<"Received: "<<pkt.seq_num<<endl;
-        for(int i=0;i<window_buffer[nextACK % RWND].data_size;i++){
+        for(int i=0;i<pkt.data_size;i++){
                 if(buf_idx<MAXBUFSIZE){
                     file_buffer[buf_idx++] = pkt.data[i];
                 }
