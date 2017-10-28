@@ -192,8 +192,8 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
 int sendSinglePacket (int sockfd, int pt) {
     memcpy(buf, &window_buffer[pt], sizeof(packet));
     if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-        perror("Error: data sending");
         printf("Fail to send %d pkt", pt);
+        perror("Error: data sending (single)");
         exit(2);
     }
     sent_time[pt] = proc_time_now();
@@ -245,11 +245,11 @@ int handleACK (packet pkt, int sockfd) {
 
         switch (soc_state) {
             case SLOW_START:
-                cwnd += 1;
+                cwnd = (cwnd + 1 < SWND) ? cwnd + 1 : SWND - 1;
                 dupACK = 0;
                 break;
             case CONGESTION_AVOID:
-                cwnd += 1.0 / cwnd;
+                cwnd = (cwnd + 1.0/cwnd < SWND) ? cwnd + 1.0 / cwnd : SWND - 1;
                 dupACK = 0;
                 break;
             case FAST_RECOVERY:
@@ -264,7 +264,7 @@ int handleACK (packet pkt, int sockfd) {
     } else if (ack_pos_in_swnd == send_base) { // dup ACK
         if (soc_state == SLOW_START || soc_state == CONGESTION_AVOID) {
             ++dupACK;
-        } else { cwnd += 1; }
+        } else { cwnd = (cwnd + 1 < SWND) ? cwnd + 1 : SWND - 1; }
     } else {
         perror("Invalid ACK packet");
     }
