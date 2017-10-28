@@ -7,22 +7,46 @@ socklen_t addr_len = sizeof their_addr;
 struct addrinfo hints, *recvinfo, *p;
 
 
-unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0;
-int64_t timeout, estimatedRTT = 1000, deviation = 1;
-
 FILE *fp;
-int send_base_acked = 0;
+// For congestion control
 double cwnd = 1;
 int ssthread = 8, dupACK = 0;
 int send_base = 0, next_send = 0, file_pt = 0;
-int global_seq_num = 0;
+int send_base_acked = 0, global_seq_num = 0;
+
+// Timing related
+int64_t timeout, estimatedRTT = 1000, deviation = 1;
+uint64_t start_time;
+
+// Tmp parameters or flags
 ssize_t numbytes;
 int file_read_finished = 0;
+unsigned long long int bytesToRead;
+unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0;
+
+// Sliding window related
 packet window_buffer[SWND];
 int64_t sent_time[SWND];
 uint8_t buf[sizeof(packet)];
 int soc_state = CLOSED;
 
+void openFile(char* filename, unsigned long long int bytesToTransfer) {
+    // Open the file
+    fp = fopen(filename, "rb");
+    if (fp == NULL) {
+        printf("Could not open file to send.");
+        exit(1);
+    }
+
+    /* Determine how many bytes to transfer */
+    fseek (fp, 0, SEEK_END);
+    unsigned long long int file_size = ftell(fp);
+    rewind(fp);
+    bytesToRead = min(file_size, bytesToTransfer);
+
+    num_pkt_total = (unsigned long long int) ceil(bytesToRead * 1.0 / MSS);
+    cout << num_pkt_total << endl;
+}
 
 uint64_t time_now() {
     struct timeval current;
@@ -30,6 +54,11 @@ uint64_t time_now() {
     return (uint64_t)(current.tv_sec * 1000000 + current.tv_usec);
 }
 
+int64_t proc_time_now() {
+    return (int64_t) (time_now() - start_time);
+}
+
+/*
 int setTimeout(int sockfd, int usec)
 {
     if (usec < 0)
@@ -41,13 +70,14 @@ int setTimeout(int sockfd, int usec)
     }
     return 0;
 }
+ */
 
 void updateTimeout(int64_t sentTime) {
     int64_t sampleRTT = time_now() - sentTime;
     estimatedRTT = (int64_t)(0.875 * estimatedRTT + 0.125 * sampleRTT); // alpha = 0.875
     deviation += (int64_t)(0.25 * ( abs(sampleRTT - estimatedRTT) - deviation)); //delta = 0.25
     timeout = (estimatedRTT + 4 * deviation); // mu = 1, phi = 4
-    timeout = timeout/5;
+//    timeout = timeout/5;
 }
 
 int handshake(int sockfd) {
@@ -122,27 +152,22 @@ int fillingWindow(int num_pkt) {
     int counter = 0;
     char file_buffer[MSS+1];
     packet pkt;
-    while (!file_read_finished && counter < num_pkt) {
-        int read_size = fread (file_buffer, sizeof(char), MSS, fp);
+    for (counter = 0; bytesToRead && counter < num_pkt; ++ counter) {
+        int byte_trans_once = min(MSS, (int) bytesToRead);
+        int read_size = fread (file_buffer, sizeof(char), byte_trans_once, fp);
         if (read_size > 0) {
             pkt.data_size = read_size;
             pkt.seq_num = global_seq_num;
             pkt.msg_type = DATA;
-            memcpy(pkt.data, &file_buffer, sizeof(char) * MSS);
+            memcpy(pkt.data, &file_buffer, sizeof(char) * byte_trans_once);
             memcpy(&window_buffer[file_pt], &pkt, sizeof(packet));
             file_pt = (file_pt + 1) % SWND;
             global_seq_num = (global_seq_num + 1) % MAX_SEQ;
         }
-
-        if (read_size < MSS) {
-            file_read_finished = 1;
-            break;
-        }
-        ++counter;
+        bytesToRead -= read_size;
     }
 
     cout << "Filling the window" << endl;
-
     return counter;
 }
 
@@ -157,6 +182,7 @@ int sendMultiPackets (int sockfd, int start_pt, int last_pt) {
             exit(2);
         }
         cout << "-----------Sending packet " << window_buffer[i_pos_in_swnd].seq_num << "---------------" << endl;
+        sent_time[i_pos_in_swnd] = proc_time_now();
     }
     num_pkt_sent += (last_pt - start_pt) % SWND;
     if (!file_read_finished) { fillingWindow( (last_pt- start_pt) % SWND ); }
@@ -170,7 +196,7 @@ int sendSinglePacket (int sockfd, int pt) {
         printf("Fail to send %d pkt", pt);
         exit(2);
     }
-    sent_time[pt] = time_now();
+    sent_time[pt] = proc_time_now();
     return 0;
 }
 
@@ -318,20 +344,14 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
     cout << "Successfully build socket with sockfd: " << sockfd << endl;
 //    int sockfd = 3;
 
-    fp = fopen(filename, "rb");
-    if (fp == NULL) {
-        printf("Could not open file to send.");
-        exit(1);
-    }
+    openFile(filename, bytesToTransfer);
 
-    /* Determine how many bytes to transfer */
     if (fillingWindow(SWND) == -1) {
         perror("Error during filling window");
     }
 
-    //TODO: assumption here: the input length is always larger than file size.
-    num_pkt_total = (unsigned long long int) ceil(bytesToTransfer * 1.0 / MSS);
-    cout << num_pkt_total << endl;
+    // Time started:
+    start_time = time_now();
 
     sendAllowedPackets(sockfd);
 //    sendSinglePacket(sockfd, 0);
