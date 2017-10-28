@@ -90,13 +90,14 @@ void handleData(packet pkt){
         //send current packet and potential to receive_buffer
         cout<<"Received: "<<pkt.seq_num<<endl;
         for(int i=0;i<pkt.data_size;i++){
-                if(buf_idx<MAXBUFSIZE){
-                    file_buffer[buf_idx++] = pkt.data[i];
-                }
-                else{
+                if(buf_idx==MAXBUFSIZE-1){
                     // write to file
                     fwrite(file_buffer,sizeof(uint8_t),MAXBUFSIZE,fd);
                     buf_idx=0;
+                    
+                }
+                else{
+                    file_buffer[buf_idx++] = pkt.data[i];
                 }
         }
         nextACK=(nextACK+1) % MAXSEQUENCE;     
@@ -104,13 +105,14 @@ void handleData(packet pkt){
         while(receive_window[nextACK % RWND]){
             receive_window[nextACK % RWND]=0;
             for(int i=0;i<window_buffer[nextACK % RWND].data_size;i++){
-                if(buf_idx<MAXBUFSIZE){
-                    file_buffer[buf_idx++] = pkt.data[i];
-                }
-                else{
+                if(buf_idx==MAXBUFSIZE-1){
                     // write to file
                     fwrite(file_buffer,sizeof(uint8_t),MAXBUFSIZE,fd);
                     buf_idx=0;
+                }
+                else{
+                    file_buffer[buf_idx++] = pkt.data[i];
+                    
                 }
             }
         nextACK=(nextACK+1) % MAXSEQUENCE;     
@@ -127,7 +129,13 @@ void handleData(packet pkt){
     //arrival of segment partially fills gap, send ack
     else {
         // sequence number < nextAck
-        // simply ignore this packet
+        packet ack;
+        ack.msg_type=ACK;
+        ack.ack_num = pkt.seq_num;
+        ack.data_size = 0; // data size is 0 since we are sending ack
+        memcpy(buf,&ack,sizeof(packet));
+        sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len);
+        return;
     }
     // always send nextACK
     packet ack;
@@ -198,7 +206,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
         }
         else if(pkt.msg_type == FIN){
             // send data remain in buffer
-            fwrite(file_buffer,sizeof(uint8_t),buf_idx+1,fd);
+            fwrite(file_buffer,sizeof(uint8_t),buf_idx,fd);
             endConndection();
             break;
         }
