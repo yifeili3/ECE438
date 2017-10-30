@@ -156,14 +156,14 @@ int buildSenderSocket(char* hostname, char* hostUDPport) {
 		return 2;
 	}
 
-//    return sockfd;
+    return sockfd;
 
-	if (handshake(sockfd) != -1) {
-    	return sockfd;
-    } else {
-    	perror("Fail handshaking");
-    	exit(2);
-    }
+//	if (handshake(sockfd) != -1) {
+//    	return sockfd;
+//    } else {
+//    	perror("Fail handshaking");
+//    	exit(2);
+//    }
     
 }
 
@@ -355,26 +355,26 @@ void endConnection(int sockfd){
     }
     // Wait for the FIN
     // TODO: wait for some time
-    while (1) {
-        packet ack;
-        if ((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1) {
-            perror("can not receive from sender");
-            exit(2);
-        }
-        memcpy(&ack, buf, sizeof(packet));
-        if (ack.msg_type == FIN) {
-            cout << "Receive the last FIN" << endl;
-            break;
-        }
-    }
-
-    pkt.msg_type = FIN_ACK;
-    pkt.data_size=0;
-    memcpy(buf, &pkt, sizeof(packet));
-    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-        perror("can not send final FIN to sender");
-        exit(2);
-    }
+//    while (1) {
+//        packet ack;
+//        if ((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1) {
+//            perror("can not receive from sender");
+//            exit(2);
+//        }
+//        memcpy(&ack, buf, sizeof(packet));
+//        if (ack.msg_type == FIN) {
+//            cout << "Receive the last FIN" << endl;
+//            break;
+//        }
+//    }
+//
+//    pkt.msg_type = FIN_ACK;
+//    pkt.data_size=0;
+//    memcpy(buf, &pkt, sizeof(packet));
+//    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
+//        perror("can not send final FIN to sender");
+//        exit(2);
+//    }
     //TODO: Wait for some time to finially close the channel.
 
 }
