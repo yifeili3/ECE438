@@ -27,7 +27,7 @@ unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0
 // Sliding window related
 packet window_buffer[SWND];
 int64_t sent_time[SWND];
-uint8_t buf[sizeof(packet)];
+char buf[sizeof(packet)];
 int soc_state = CLOSED;
 
 void openFile(char* filename, unsigned long long int bytesToTransfer) {

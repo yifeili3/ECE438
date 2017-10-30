@@ -31,7 +31,7 @@
 #define ESTABLISHED 3
 #define CLOSE_WAIT 4
 #define LAST_ACK 5
-#define MAXBUFSIZE 20000
+#define MAXBUFSIZE 10000
 #define HEADERSIZE 16
 using namespace std;
 
@@ -41,7 +41,7 @@ typedef struct{
 	int 	seq_num;
 	int     ack_num;
 	int     msg_type; //SYN 0 ACK 1 FIN 2 FINACK 3
-	uint8_t data[MSS];
+	char data[MSS];
 }packet;
 
 void reliablyReceive(char* myUDPport, char* destinationFile);
