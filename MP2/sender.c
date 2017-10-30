@@ -441,8 +441,8 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
 //            sent_time[send_base] = procTimeNow();
             // timeout state
             ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
-            timeout = min(timeout * 2, (int64_t)2000000);
-            setTimeout(sockfd, timeout);
+//            timeout = min(timeout * 2, (int64_t)2000000);
+//            setTimeout(sockfd, timeout);
         }
 
         packet pkt;
