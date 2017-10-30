@@ -28,7 +28,7 @@ unsigned long long int num_pkt_sent = 0, num_pkt_received = 0, num_pkt_total = 0
 packet window_buffer[SWND];
 int64_t sent_time[SWND];
 char buf[sizeof(packet)];
-int soc_state = CLOSED;
+int soc_state = SLOW_START;
 
 void printSWNDseq() {
     cout << "Current seq # in SWND: ";
@@ -393,7 +393,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
 
     // Time started:
     start_time = timeNow();
-    setTimeout(sockfd, timeout);
+    setTimeout(sockfd, (int) timeout);
 
     sendAllowedPackets(sockfd);
 //    sendSinglePacket(sockfd, 0);
@@ -401,26 +401,26 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
     while (num_pkt_sent < num_pkt_total ||
            num_pkt_received < num_pkt_sent) {
         // Check for timeout
-        uint64_t current_time = procTimeNow();
-        for (int i = 0; i < (int) cwnd; ++i) {
-            int i_pos_in_swnd = (send_base + i) % SWND;
-            if (current_time - sent_time[i_pos_in_swnd] < timeout) { continue; }
-            memcpy(buf, &window_buffer[i_pos_in_swnd], sizeof(packet));
-            if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-                perror("Error: timeout sending");
-                printf("Fail to send %d pkt in SWND", i_pos_in_swnd);
-                exit(2);
-            }
-            cout << "----- Timeout resending packet " << window_buffer[i_pos_in_swnd].seq_num << "----------"
-                 << endl << "t_now: " << current_time << "t have:" << sent_time[i_pos_in_swnd] << " diff: " << current_time - sent_time[i_pos_in_swnd] << endl;
-            printSentTime();
-            sent_time[i_pos_in_swnd] = procTimeNow();
-            // timeout state
-            ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
-            timeout = min(timeout * 2, (int64_t)2000000);
-            setTimeout(sockfd, timeout);
-            break; // Only resend the first one.
-        }
+//        uint64_t current_time = procTimeNow();
+//        for (int i = 0; i < (int) cwnd; ++i) {
+//            int i_pos_in_swnd = (send_base + i) % SWND;
+//            if (current_time - sent_time[i_pos_in_swnd] < timeout) { continue; }
+//            memcpy(buf, &window_buffer[i_pos_in_swnd], sizeof(packet));
+//            if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
+//                perror("Error: timeout sending");
+//                printf("Fail to send %d pkt in SWND", i_pos_in_swnd);
+//                exit(2);
+//            }
+//            cout << "----- Timeout resending packet " << window_buffer[i_pos_in_swnd].seq_num << "----------"
+//                 << endl << "t_now: " << current_time << "t have:" << sent_time[i_pos_in_swnd] << " diff: " << current_time - sent_time[i_pos_in_swnd] << endl;
+//            printSentTime();
+//            sent_time[i_pos_in_swnd] = procTimeNow();
+//            // timeout state
+//            ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
+//            timeout = min(timeout * 2, (int64_t)2000000);
+//            setTimeout(sockfd, timeout);
+//            break; // Only resend the first one.
+//        }
 
         // Wait for ack
         if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, NULL, NULL)) == -1) {
@@ -428,7 +428,23 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
                 perror("can not receive main ack");
                 exit(2);
             }
+            // Timeout
+            memcpy(buf, &window_buffer[send_base], sizeof(packet));
+            if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
+                perror("Error: timeout sending");
+                printf("Fail to send %d pkt in SWND", send_base);
+                exit(2);
+            }
+            cout << "----- Timeout resending packet " << window_buffer[send_base].seq_num << "----------"
+                 << endl ;
+            printSentTime();
+//            sent_time[send_base] = procTimeNow();
+            // timeout state
+            ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
+            timeout = min(timeout * 2, (int64_t)2000000);
+            setTimeout(sockfd, timeout);
         }
+
         packet pkt;
         memcpy(&pkt, buf, sizeof(packet));
         if(pkt.msg_type == ACK) {
