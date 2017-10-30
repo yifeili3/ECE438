@@ -53,9 +53,12 @@ int buildSocket(char* myUDPport){
     state = LISTEN;
 
     addr_len = sizeof their_addr;
+    
+    /*
 	numbytes = recvfrom(socket_fd,buf,sizeof(packet),0,(struct sockaddr *) &their_addr, &addr_len);
     packet pkt; 
-    memcpy(&pkt,buf,sizeof(packet));     
+    memcpy(&pkt,buf,sizeof(packet));
+
     if(state == LISTEN && pkt.msg_type == SYN){ 
         while(1){
             pkt.msg_type = SYN_ACK;
@@ -78,6 +81,7 @@ int buildSocket(char* myUDPport){
             }
         }
     }
+    */
 
     return socket_fd;
 }
@@ -157,30 +161,7 @@ void endConndection(){
             perror("can not send to sender");
             exit(2);
         }
-        state = CLOSE_WAIT;
-
-        // send FIN
-        packet fin;
-        fin.msg_type=FIN;
-        fin.data_size=0;
-        memcpy(buf,&fin,sizeof(packet));
-        if((numbytes = sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len))== -1){
-            perror("can not send to sender");
-            exit(2);
-        }
-        state = LAST_ACK;
-
-        // send final ack
-        packet ack;
-        if((numbytes=recvfrom(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len))==-1){
-            perror("can not receive from sender");
-            exit(2);
-        }
-        memcpy(&ack,buf,sizeof(packet));
-        if(ack.msg_type==FIN_ACK){
-            state = CLOSED;
-            break;
-        }
+        break;
     }
 }
 
@@ -201,6 +182,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
         memcpy(&pkt,buf,sizeof(packet));
         if(pkt.msg_type == DATA){
             handleData(pkt);
+            cout<< pkt.seq_num <<endl;
             continue;
         }
         else if(pkt.msg_type == FIN){
