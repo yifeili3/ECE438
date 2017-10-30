@@ -53,7 +53,7 @@ int buildSocket(char* myUDPport){
     state = LISTEN;
 
     addr_len = sizeof their_addr;
-    
+
     /*
 	numbytes = recvfrom(socket_fd,buf,sizeof(packet),0,(struct sockaddr *) &their_addr, &addr_len);
     packet pkt; 
@@ -90,6 +90,7 @@ int buildSocket(char* myUDPport){
 void handleData(packet pkt){
     // arrival of inorder segment with expected sequence number
     // send single cumulative ack if lower waiting for ack
+    cout<< "receive" << pkt.seq_num<<endl;
     if(pkt.seq_num == nextACK){
         //send current packet and potential to receive_buffer
         for(int i=0;i<pkt.data_size;i++){
@@ -133,7 +134,7 @@ void handleData(packet pkt){
         // sequence number < nextAck
         packet ack;
         ack.msg_type=ACK;
-        ack.ack_num = pkt.seq_num;
+        ack.ack_num = nextACK;
         ack.data_size = 0; // data size is 0 since we are sending ack
         memcpy(buf,&ack,sizeof(packet));
         sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr,addr_len);

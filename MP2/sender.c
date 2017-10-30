@@ -15,7 +15,7 @@ int send_base = 0, next_send = 0, file_pt = 0;
 int send_base_acked = 0, global_seq_num = 0;
 
 // Timing related
-int64_t timeout = 500000, estimatedRTT = 100000, deviation = 1;
+int64_t timeout = 100000, estimatedRTT = 100000, deviation = 1;
 uint64_t start_time;
 
 // Tmp parameters or flags
@@ -55,10 +55,6 @@ void openFile(char* filename, unsigned long long int bytesToTransfer) {
     }
 
     /* Determine how many bytes to transfer */
-//    fseek (fp, 0, SEEK_END);
-//    unsigned long long int file_size = ftell(fp);
-//    rewind(fp);
-//    bytesToRead = min(file_size, bytesToTransfer);
     bytesToRead = bytesToTransfer;
 
     num_pkt_total = (unsigned long long int) ceil(bytesToRead * 1.0 / MSS);
@@ -86,45 +82,6 @@ int setTimeout(int sockfd, int usec)
         perror("sender: setsockopt");
     }
     cout << "Setting timeout to " << timeout << endl;
-    return 0;
-}
-
-void updateTimeout(int64_t sentTime) {
-    int64_t sampleRTT = procTimeNow() - sentTime;
-    estimatedRTT = (int64_t)(0.875 * estimatedRTT + 0.125 * sampleRTT); // alpha = 0.875
-    deviation += (int64_t)(0.25 * ( abs(sampleRTT - estimatedRTT) - deviation)); //delta = 0.25
-    timeout = (estimatedRTT + 4 * deviation); // mu = 1, phi = 4
-//    timeout = 100000;
-}
-
-int handshake(int sockfd) {
-    packet pkt;
-    pkt.msg_type = SYN;
-    pkt.data_size=0;
-    while(1) {
-        memcpy(buf, &pkt, sizeof(packet));
-        if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen )) == -1){
-            perror("can not send SYN to sender");
-            exit(2);
-        }
-        if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1){
-            perror("can not receive SYN_ACK from sender");
-            exit(2);
-        }
-        memcpy(&pkt, buf, sizeof(packet));
-        if(pkt.msg_type == SYN_ACK){
-            soc_state = SLOW_START;
-            cout << "Receive SYN_ACK" << endl;
-            break;
-        }
-    }
-    pkt.msg_type = ACK;
-    memcpy(buf, &pkt, sizeof(packet));
-    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-        perror("can not receive SYN_ACK from sender");
-        exit(2);
-    }
-
     return 0;
 }
 
@@ -157,14 +114,6 @@ int buildSenderSocket(char* hostname, char* hostUDPport) {
 	}
 
     return sockfd;
-
-//	if (handshake(sockfd) != -1) {
-//    	return sockfd;
-//    } else {
-//    	perror("Fail handshaking");
-//    	exit(2);
-//    }
-    
 }
 
 int fillingWindow(int num_pkt) {
@@ -178,7 +127,6 @@ int fillingWindow(int num_pkt) {
         } else {
             byte_trans_once = MSS;
         }
-//        byte_trans_once = min(MSS, (int) bytesToRead);
         int read_size = fread (file_buffer, sizeof(char), byte_trans_once, fp);
         if (read_size > 0) {
             pkt.data_size = read_size;
@@ -298,8 +246,6 @@ int handleACK (packet pkt, int sockfd) {
                 perror("Wrong socket status");
                 return -1;
         }
-//        updateTimeout(sent_time[ack_pos_in_swnd]);
-//        setTimeout(sockfd, timeout * 5);
     } else if (ack_pos_in_swnd == send_base) { // dup ACK
         printSWNDseq();
         if (soc_state == SLOW_START || soc_state == CONGESTION_AVOID) {
@@ -322,9 +268,6 @@ int handleACK (packet pkt, int sockfd) {
     }
 
 //    updateTimeout(sent_time[ack_pos_in_swnd]);
-    cout << "State: " << soc_state << "  cwnd: " << cwnd << " ssthread: " << ssthread
-         << " dupACK: " << dupACK << " send_base: " << send_base
-         << " timeout: " << timeout << endl;
     sendAllowedPackets(sockfd);
 
     return 0;
@@ -353,37 +296,12 @@ void endConnection(int sockfd){
             break;
         }
     }
-    // Wait for the FIN
-    // TODO: wait for some time
-//    while (1) {
-//        packet ack;
-//        if ((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len)) == -1) {
-//            perror("can not receive from sender");
-//            exit(2);
-//        }
-//        memcpy(&ack, buf, sizeof(packet));
-//        if (ack.msg_type == FIN) {
-//            cout << "Receive the last FIN" << endl;
-//            break;
-//        }
-//    }
-//
-//    pkt.msg_type = FIN_ACK;
-//    pkt.data_size=0;
-//    memcpy(buf, &pkt, sizeof(packet));
-//    if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-//        perror("can not send final FIN to sender");
-//        exit(2);
-//    }
-    //TODO: Wait for some time to finially close the channel.
-
 }
 
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
 
     int sockfd = buildSenderSocket(hostname, hostUDPport);
     cout << "Successfully build socket with sockfd: " << sockfd << endl;
-//    int sockfd = 3;
 
     openFile(filename, bytesToTransfer);
 
@@ -396,32 +314,8 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
     setTimeout(sockfd, (int) timeout);
 
     sendAllowedPackets(sockfd);
-//    sendSinglePacket(sockfd, 0);
-//    setTimeout(sockfd, (int) estimatedRTT);
     while (num_pkt_sent < num_pkt_total ||
            num_pkt_received < num_pkt_sent) {
-        // Check for timeout
-//        uint64_t current_time = procTimeNow();
-//        for (int i = 0; i < (int) cwnd; ++i) {
-//            int i_pos_in_swnd = (send_base + i) % SWND;
-//            if (current_time - sent_time[i_pos_in_swnd] < timeout) { continue; }
-//            memcpy(buf, &window_buffer[i_pos_in_swnd], sizeof(packet));
-//            if((numbytes = sendto(sockfd, buf, sizeof(packet), 0, p->ai_addr, p->ai_addrlen))== -1){
-//                perror("Error: timeout sending");
-//                printf("Fail to send %d pkt in SWND", i_pos_in_swnd);
-//                exit(2);
-//            }
-//            cout << "----- Timeout resending packet " << window_buffer[i_pos_in_swnd].seq_num << "----------"
-//                 << endl << "t_now: " << current_time << "t have:" << sent_time[i_pos_in_swnd] << " diff: " << current_time - sent_time[i_pos_in_swnd] << endl;
-//            printSentTime();
-//            sent_time[i_pos_in_swnd] = procTimeNow();
-//            // timeout state
-//            ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
-//            timeout = min(timeout * 2, (int64_t)2000000);
-//            setTimeout(sockfd, timeout);
-//            break; // Only resend the first one.
-//        }
-
         // Wait for ack
         if((numbytes = recvfrom(sockfd, buf, sizeof(packet), 0, NULL, NULL)) == -1) {
             if (errno != EAGAIN || errno != EWOULDBLOCK) {
@@ -438,11 +332,8 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
             cout << "----- Timeout resending packet " << window_buffer[send_base].seq_num << "----------"
                  << endl ;
             printSentTime();
-//            sent_time[send_base] = procTimeNow();
-            // timeout state
             ssthread = cwnd/2; cwnd = 1.0; dupACK = 0;
-//            timeout = min(timeout * 2, (int64_t)2000000);
-//            setTimeout(sockfd, timeout);
+
         }
 
         packet pkt;
@@ -457,5 +348,4 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
 
     endConnection(sockfd);
 
-    //FIXME: Sending too many packets
 }
