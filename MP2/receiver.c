@@ -54,35 +54,6 @@ int buildSocket(char* myUDPport){
 
     addr_len = sizeof their_addr;
 
-    /*
-	numbytes = recvfrom(socket_fd,buf,sizeof(packet),0,(struct sockaddr *) &their_addr, &addr_len);
-    packet pkt; 
-    memcpy(&pkt,buf,sizeof(packet));
-
-    if(state == LISTEN && pkt.msg_type == SYN){ 
-        while(1){
-            pkt.msg_type = SYN_ACK;
-            pkt.data_size=0;
-            state = SYN_RCVD;
-            memcpy(buf,&pkt,sizeof(packet));
-            if((numbytes = sendto(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, addr_len))== -1){
-                perror("can not send to sender");
-                exit(2);
-            }
-            packet ack;
-            if((numbytes= recvfrom(socket_fd, buf, sizeof(packet), 0, (struct sockaddr *) &their_addr, &addr_len))==-1){
-                perror("can not receive from sender");
-                exit(2);
-            }
-            memcpy(&ack,buf,sizeof(packet));
-            if(ack.msg_type==ACK){
-                state = ESTABLISHED;
-                break;
-            }
-        }
-    }
-    */
-
     return socket_fd;
 }
 
@@ -90,15 +61,11 @@ int buildSocket(char* myUDPport){
 void handleData(packet pkt){
     // arrival of inorder segment with expected sequence number
     // send single cumulative ack if lower waiting for ack
-    cout<< "receive" << pkt.seq_num<<endl;
+    //cout<< "receive" << pkt.seq_num<<endl;
     if(pkt.seq_num == nextACK){
         //send current packet and potential to receive_buffer
         for(int i=0;i<pkt.data_size;i++){
                 file_buffer[buf_idx++] = pkt.data[i];
-                // if(buf_idx==10000){
-                //     printf("0x%x vs 0x%x\n",file_buffer[buf_idx-1], pkt.data[i]);
-                    
-                // }
                 if(buf_idx==MAXBUFSIZE){
                     // write to file
                     fwrite(file_buffer,sizeof(char),MAXBUFSIZE,fd);
@@ -110,7 +77,7 @@ void handleData(packet pkt){
         while(receive_window[nextACK % RWND]){
             receive_window[nextACK % RWND]=0;
             for(int i=0;i<window_buffer[nextACK % RWND].data_size;i++){
-                file_buffer[buf_idx++] = pkt.data[i];
+                file_buffer[buf_idx++] = window_buffer[nextACK % RWND].data[i];
                 if(buf_idx==MAXBUFSIZE){
                     // write to file
                     fwrite(file_buffer,sizeof(char),MAXBUFSIZE,fd);
@@ -124,9 +91,10 @@ void handleData(packet pkt){
     //arrival out of order segment, send duplicate ack
     else if (pkt.seq_num > nextACK) {
         //buffer this packet
+         cout<<"Out of Order: "<<pkt.seq_num<<endl;
         if (receive_window[pkt.seq_num % RWND]==0){
             receive_window[pkt.seq_num % RWND]=1;
-            memcpy(&window_buffer[pkt.seq_num %RWND], &pkt, sizeof(packet));
+            memcpy(&window_buffer[pkt.seq_num % RWND], &pkt, sizeof(packet));
         }
     }
     //arrival of segment partially fills gap, send ack
@@ -183,7 +151,6 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
         memcpy(&pkt,buf,sizeof(packet));
         if(pkt.msg_type == DATA){
             handleData(pkt);
-            cout<< pkt.seq_num <<endl;
             continue;
         }
         else if(pkt.msg_type == FIN){

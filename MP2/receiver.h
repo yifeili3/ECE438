@@ -16,7 +16,7 @@
 #define RECEIVER_H_
 
 #define MSS 1000
-#define RWND 200
+#define RWND 20000
 #define DATA 0
 #define SYN 1
 #define SYN_ACK 2
